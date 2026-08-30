@@ -12,13 +12,15 @@ use App\Models\Notification;
 /**
  * Email-ready notification pipeline. Templates render to full HTML (see
  * views/emails/*.php), get queued in the `notifications` table, and are
- * "delivered" by the configured driver:
+ * "delivered" by the configured driver (MAIL_DRIVER):
  *
- *   - 'log'  (default, dev): appended to storage/logs/mail.log and marked
- *     'sent' immediately — there is no SMTP server in this environment, so
- *     this is the honest stand-in. Swapping in a real transport (PHPMailer,
- *     Symfony Mailer, an API-based provider) only requires implementing
- *     `deliver()` differently; every call site and template is unaffected.
+ *   - 'log' (default, dev): appended to storage/logs/mail.log and marked
+ *     'sent' immediately — no outbound network call, safe for local dev.
+ *   - 'smtp': sent over a real SMTP connection via SmtpMailer (STARTTLS/SSL,
+ *     optional AUTH LOGIN — see MAIL_HOST/MAIL_PORT/MAIL_ENCRYPTION/
+ *     MAIL_USERNAME/MAIL_PASSWORD in .env.example). Marked 'sent' on success;
+ *     on failure the row is marked 'failed' and the error is appended to
+ *     storage/logs/mail.log rather than silently dropped.
  *   - anything else: left 'pending' for a real worker/cron to pick up.
  */
 final class NotificationService
@@ -94,10 +96,21 @@ final class NotificationService
 
     private static function deliver(int $notificationId, ?string $recipientEmail, string $subject, string $bodyHtml): void
     {
-        $config = require ROOT_PATH . '/config/app.php';
-        $driver = $config['mail']['driver'] ?? 'log';
+        if ($recipientEmail === null) {
+            return;
+        }
 
-        if ($driver !== 'log' || $recipientEmail === null) {
+        $config = require ROOT_PATH . '/config/app.php';
+        $mail = $config['mail'];
+        $driver = $mail['driver'] ?? 'log';
+
+        if ($driver === 'smtp') {
+            self::deliverViaSmtp($notificationId, $mail, $recipientEmail, $subject, $bodyHtml);
+
+            return;
+        }
+
+        if ($driver !== 'log') {
             return;
         }
 
@@ -114,5 +127,36 @@ final class NotificationService
         file_put_contents($logPath, $entry, FILE_APPEND | LOCK_EX);
 
         Notification::update($notificationId, ['status' => 'sent', 'sent_at' => date('Y-m-d H:i:s')]);
+    }
+
+    private static function deliverViaSmtp(int $notificationId, array $mail, string $recipientEmail, string $subject, string $bodyHtml): void
+    {
+        $result = SmtpMailer::send([
+            'host' => $mail['smtp']['host'],
+            'port' => $mail['smtp']['port'],
+            'encryption' => $mail['smtp']['encryption'],
+            'username' => $mail['smtp']['username'],
+            'password' => $mail['smtp']['password'],
+            'timeout' => $mail['smtp']['timeout'],
+            'from_address' => $mail['from_address'],
+            'from_name' => $mail['from_name'],
+        ], $recipientEmail, $subject, $bodyHtml);
+
+        if ($result['ok']) {
+            Notification::update($notificationId, ['status' => 'sent', 'sent_at' => date('Y-m-d H:i:s')]);
+
+            return;
+        }
+
+        Notification::update($notificationId, ['status' => 'failed']);
+
+        $entry = sprintf(
+            "[%s] SMTP FAILURE notification #%d TO: %s | %s\n",
+            date('Y-m-d H:i:s'),
+            $notificationId,
+            $recipientEmail,
+            $result['error']
+        );
+        file_put_contents(STORAGE_PATH . '/logs/mail.log', $entry, FILE_APPEND | LOCK_EX);
     }
 }

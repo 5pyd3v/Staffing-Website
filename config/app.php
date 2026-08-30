@@ -32,5 +32,13 @@ return [
         'driver' => env('MAIL_DRIVER', 'log'),
         'from_address' => env('MAIL_FROM_ADDRESS', 'noreply@example.com'),
         'from_name' => env('MAIL_FROM_NAME', 'Staffing Platform'),
+        'smtp' => [
+            'host' => env('MAIL_HOST', ''),
+            'port' => (int) env('MAIL_PORT', 587),
+            'encryption' => env('MAIL_ENCRYPTION', 'tls'),
+            'username' => env('MAIL_USERNAME', ''),
+            'password' => env('MAIL_PASSWORD', ''),
+            'timeout' => (int) env('MAIL_TIMEOUT', 10),
+        ],
     ],
 ];

@@ -98,8 +98,10 @@ Complete and tested so far:
   across skills/location/employment type/availability/budget, with a ranked
   Strong Match / Needs Review view per staffing request and one-click
   save-and-notify); a full notification architecture (HTML email templates,
-  an admin alert feed, a `log` mail driver that writes to
-  `storage/logs/mail.log` in dev); inline per-field validation on every
-  public-facing form; a security/CSRF audit (closed a missing check on
-  logout); a protected admin resume-download endpoint; and an accessibility
-  pass (skip-to-content links, table header scopes, visible focus states).
+  an admin alert feed, a swappable mail driver — `log` writes to
+  `storage/logs/mail.log` in dev, `smtp` sends real email over a
+  dependency-free SMTP client, see `MAIL_*` in `.env.example`); inline
+  per-field validation on every public-facing form; a security/CSRF audit
+  (closed a missing check on logout); a protected admin resume-download
+  endpoint; and an accessibility pass (skip-to-content links, table header
+  scopes, visible focus states).

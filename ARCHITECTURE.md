@@ -205,12 +205,17 @@ render a view or redirect; no business logic lives in views.
   `class Match` is a fatal parse error.
 - **Notifications** (`app/Services/NotificationService.php`): every
   templated email (`views/emails/*.php`, wrapped by `views/emails/layout.php`)
-  is queued as a `notifications` row and "delivered" by a swappable driver —
-  `log` (the default here) appends a plain-text rendering to
-  `storage/logs/mail.log` and marks the row `sent` immediately, since there's
-  no SMTP server in this environment; swapping in a real transport later
-  only means changing `deliver()`, not any call site or template.
-  `queueAdminAlert()` fans a message out to every active admin/super_admin;
+  is queued as a `notifications` row and delivered by a swappable driver
+  (`MAIL_DRIVER`): `log` (dev default) appends a plain-text rendering to
+  `storage/logs/mail.log` and marks the row `sent` immediately; `smtp` sends
+  it for real over a hand-rolled SMTP client
+  (`app/Services/SmtpMailer.php` — EHLO/STARTTLS-or-SSL/AUTH LOGIN/MAIL/RCPT/
+  DATA over a raw socket, RFC-5321 dot-stuffing, no library — consistent with
+  the project's zero-Composer-dependency stance) configured via
+  `MAIL_HOST`/`MAIL_PORT`/`MAIL_ENCRYPTION`/`MAIL_USERNAME`/`MAIL_PASSWORD`
+  in `.env`. A failed SMTP delivery marks the row `failed` and appends the
+  SMTP server's error to `storage/logs/mail.log` instead of silently
+  dropping it. `queueAdminAlert()` fans a message out to every active admin/super_admin;
   `queueUserNotification()` targets one user. Wired into: candidate
   registration (alerts admins), staffing-request submission (alerts admins),
   job application (alerts admins), a saved match (notifies the candidate),
@@ -274,14 +279,23 @@ with no CSRF token. `AuthMiddleware` now checks `Auth::user() !== null` and
 forces a clean logout + redirect if the account is gone, instead of letting
 the request continue with a stale session.
 
-## Planned layers (later phases)
+## Known gaps (not yet built)
 
-- **Services** (`app/Services`): matching-score calculation, notification
-  dispatch — kept out of controllers so admin/API entry points can share logic.
-- **File uploads**: a dedicated `App\Services\FileUploadService` will handle
-  MIME/extension whitelisting, size limits, and non-guessable stored filenames
-  for resumes/avatars/logos (schema already has a polymorphic `files` table
-  ready for this).
-- **AJAX endpoints**: candidate search/filtering and CRM timeline actions will
-  return JSON via `Response::json()` from thin controller actions, keeping the
-  vanilla-JS frontend framework-free.
+- **Avatar/logo upload**: `config/app.php`'s `uploads` block and the `files`
+  table already have `avatar`/`logo` paths and MIME whitelists wired, and
+  `FileUploadService::store()` already accepts an `avatar` kind — but no
+  controller/view actually exposes an upload form for it yet. Candidates and
+  companies currently only ever get the deterministic initials badge from
+  `avatar()` (`app/helpers.php`).
+- **Persisted registration drafts**: the 6-step candidate wizard
+  (`CandidateRegistrationController`) keeps its draft in
+  `Session::get('candidate_draft')` only. If the session dies mid-wizard
+  (expiry, browser close, cookie clear) the draft is gone with no way to
+  resume via an emailed link — moving it to a DB-backed draft table (now that
+  Phase 5 added real outbound email — see Notifications above) is the
+  natural next step, not a Phase 4 gap anymore.
+- **No automated test suite**: correctness has been verified so far by
+  `php -l`, manual curl smoke tests, and in-browser exercising of each flow —
+  there is no PHPUnit (or equivalent) regression suite yet.
+- **No DB migration tooling**: `database/schema.sql` is applied once at setup;
+  there's no versioned migration runner for evolving the schema afterward.
